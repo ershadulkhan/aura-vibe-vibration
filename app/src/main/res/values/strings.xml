@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">AuraVibe</string>
+    <string name="listener_label">AuraVibe notification engine</string>
+    <string name="tile_label">Aura Light</string>
+</resources>
