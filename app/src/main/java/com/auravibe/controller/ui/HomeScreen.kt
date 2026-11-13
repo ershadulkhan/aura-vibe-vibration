@@ -53,6 +53,7 @@ fun HomeScreen() {
     val mode by app.engine.mode.collectAsStateWithLifecycle()
     val on = mode != AuraMode.OFF
     var wizard by rememberSaveable { mutableStateOf(false) }
+    var learn by rememberSaveable { mutableStateOf(false) }
 
     // Local copy so sliders feel instant; saved on release.
     var light by remember(s.light) { mutableStateOf(s.light) }
@@ -70,7 +71,7 @@ fun HomeScreen() {
         HeroButton(on, light.temp) { if (on) app.turnLightOff() else app.turnLightOn(light) }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(Triple("🟠", "Warm Orange", 0f), Triple("🌤️", "Mixed Natural", 0.5f), Triple("⚪", "Pure White", 1f)).forEach { (e, t, v) ->
+            listOf(Triple("🟠", "Pure Orange", 0f), Triple("🌤️", "Warm Mix", 0.35f), Triple("⚪", "Pure White", 1f)).forEach { (e, t, v) ->
                 ChoiceTile(e, t, null, on && light.temp == v, tempColor(v), Modifier.weight(1f)) {
                     val l = light.copy(temp = v); save(l); app.turnLightOn(l)
                 }
@@ -80,13 +81,13 @@ fun HomeScreen() {
         if (!app.hal.hasOrange) {
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Aura.Warm.copy(alpha = 0.15f))
-                    .clickable { wizard = true }.padding(14.dp),
+                    .clickable { learn = true }.padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("🟠", fontSize = 22.sp)
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
                     Text("Orange light not set up yet", fontWeight = FontWeight.SemiBold)
-                    Text("Tap to find it — takes about a minute", fontSize = 12.sp, color = Aura.Muted)
+                    Text("Tap to learn it from the vivo Camera app", fontSize = 12.sp, color = Aura.Muted)
                 }
                 Text("›", fontSize = 26.sp, color = Aura.Warm)
             }
@@ -95,11 +96,12 @@ fun HomeScreen() {
         LightCard(light, on, onLive = { l ->
             light = l
             if (app.engine.mode.value == AuraMode.ON) app.engine.adjust(l.brightness, l.temp)
-        }, onSave = { l, relight -> save(l, relight) }, onWizard = { wizard = true })
+        }, onSave = { l, relight -> save(l, relight) }, onWizard = { wizard = true }, onLearn = { learn = true })
 
         VibeCard(s.vibe, onSave = { v -> app.repo.updateVibe { v } }, onTest = { v -> app.vibes.vibrate(v, app.repo.settings.value.usage) })
     }
     if (wizard) OrangeWizard { wizard = false }
+    if (learn) LearnFromCamera { learn = false }
 }
 
 @Composable
@@ -134,7 +136,7 @@ private fun HeroButton(on: Boolean, temp: Float, onClick: () -> Unit) {
 @Composable
 private fun LightCard(
     l: LightSettings, on: Boolean,
-    onLive: (LightSettings) -> Unit, onSave: (LightSettings, Boolean) -> Unit, onWizard: () -> Unit,
+    onLive: (LightSettings) -> Unit, onSave: (LightSettings, Boolean) -> Unit, onWizard: () -> Unit, onLearn: () -> Unit,
 ) {
     val app = AuraVibeApp.instance
     var cur by remember(l) { mutableStateOf(l) }
@@ -171,9 +173,9 @@ private fun LightCard(
 
         AnimatedVisibility(cur.style != LightStyle.STEADY) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                FieldLabel("Speed")
+                FieldLabel("Fade-in / fade-out speed")
                 AccentSlider(cur.speed, { cur = cur.copy(speed = it) }, { onSave(cur, on) })
-                SliderLabels("🐢 Very slow & smooth", "🐇 Fast")
+                SliderLabels("🐢 Slow & gentle", "🐇 Fast")
 
                 FieldLabel("How many times")
                 Box(Modifier.fillMaxWidth()) {
@@ -188,8 +190,9 @@ private fun LightCard(
             }
         }
 
-        BigButton("▶️ Test This Light Style Now", Aura.Yellow) { app.turnLightOn(cur) }
-        BigButton("🟠 Fix / Calibrate Orange Light", Aura.CardHi, Aura.Warm, onClick = onWizard)
+        BigButton("▶️ Test Light Now", Aura.Yellow) { app.turnLightOn(cur) }
+        BigButton("⚡ Auto-Detect Orange from vivo Camera", Aura.CardHi, Aura.Yellow, onClick = onLearn)
+        BigButton("🟠 Step-by-Step Channel Tester", Aura.CardHi, Aura.Warm, onClick = onWizard)
     }
 }
 
@@ -199,7 +202,7 @@ private fun VibeCard(v: VibeSettings, onSave: (VibeSettings) -> Unit, onTest: (V
     fun commit(n: VibeSettings, feel: Boolean = true) { cur = n; onSave(n); if (feel) onTest(n) }
     SectionCard {
         SectionTitle("📳 Vibration Tuning")
-        SwitchRow("Vibrate apps in Silent / Vibrate mode", "Uses the apps you pick in My Apps", cur.enabled) { commit(cur.copy(enabled = it), false) }
+        SwitchRow("Force app vibrations in Vibrate / Silent mode", "Uses the apps you pick in My Apps", cur.enabled) { commit(cur.copy(enabled = it), false) }
 
         FieldLabel("Vibration style")
         VibeStyle.entries.chunked(3).forEach { row ->
@@ -223,6 +226,6 @@ private fun VibeCard(v: VibeSettings, onSave: (VibeSettings) -> Unit, onTest: (V
         AccentSlider(cur.repeat.toFloat(), { cur = cur.copy(repeat = it.toInt()) }, { commit(cur) }, 1f..5f, 3, accent = Aura.Blue)
         SliderLabels("1 time", "5 times", "${cur.repeat}× per notification")
 
-        BigButton("▶️ Feel This Vibration Now", Aura.Blue, Color.White) { onTest(cur) }
+        BigButton("▶️ Test Vibration Now", Aura.Blue, Color.White) { onTest(cur) }
     }
 }

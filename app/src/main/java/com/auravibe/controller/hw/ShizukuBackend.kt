@@ -120,6 +120,18 @@ class ShizukuBackend {
         return out.ifBlank { null }
     }
 
+    private val toggles = HashMap<String, Boolean>()
+
+    /** "shell:<on command>|OFF|<off command>" channel, run only when its on/off state changes. */
+    fun toggle(channel: String, on: Boolean, checked: Boolean = false): String? {
+        if (toggles[channel] == on && !checked) return null
+        toggles[channel] = on
+        val parts = channel.removePrefix("shell:").split("|OFF|", limit = 2)
+        val cmd = if (on) parts[0] else parts.getOrElse(1) { "" }
+        if (cmd.isBlank()) return null
+        return exec(cmd).trim().ifBlank { null }
+    }
+
     fun release() {
         runCatching { stdin?.write("exit\n"); stdin?.flush() }
         runCatching { shell?.destroy() }

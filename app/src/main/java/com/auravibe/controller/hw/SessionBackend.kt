@@ -115,7 +115,7 @@ class SessionBackend(private val context: Context) {
         if (sessionEntries.isNotEmpty()) {
             val b = d.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
             val (_, f, tone) = want ?: Triple(r, 1f, 0f)
-            sessionEntries.forEach { (k, v) -> applyKey(b, c, k, VendorRecipe.resolve(v, level(f), VendorRecipe.kelvin(tone))) }
+            sessionEntries.forEach { (k, v) -> applyKey(b, c, k, VendorRecipe.resolve(v, f, tone)) }
             cfg.sessionParameters = b.build()
         }
         d.createCaptureSession(cfg)
@@ -128,9 +128,7 @@ class SessionBackend(private val context: Context) {
         val s = session ?: return
         val d = device ?: return
         val on = f > 0.001f
-        val lvl = level(f)
-        val k = VendorRecipe.kelvin(tone)
-        val sig = "$on|$lvl|$k"
+        val sig = "$on|" + r.entries.joinToString { VendorRecipe.resolve(it.second, f, tone) }
         if (sig == lastSent) return
         lastSent = sig
         runCatching {
@@ -143,7 +141,10 @@ class SessionBackend(private val context: Context) {
                 val max = c.get(CameraCharacteristics.FLASH_TORCH_STRENGTH_MAX_LEVEL) ?: 1
                 if (max > 1) b.set(CaptureRequest.FLASH_STRENGTH_LEVEL, ceil(f * max).toInt().coerceIn(1, max))
             }
-            r.entries.forEach { (key, v) -> applyKey(b, c, key, if (on) VendorRecipe.resolve(v, lvl, k) else VendorRecipe.zero(v)) }
+            r.entries.forEach { (key, v) ->
+                val resolved = VendorRecipe.resolve(v, if (on) f else 1f, tone)
+                applyKey(b, c, key, if (on) resolved else VendorRecipe.zero(resolved))
+            }
             s.setRepeatingRequest(b.build(), null, handler)
         }.onFailure { lastError = "Request failed: ${it.message}"; lastSent = null }
     }

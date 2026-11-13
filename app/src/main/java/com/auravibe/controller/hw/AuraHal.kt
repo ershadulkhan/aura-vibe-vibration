@@ -66,6 +66,10 @@ class AuraHal(context: Context, private val repo: SettingsRepo) {
                     torch.set(ch, f)?.let(errors::add)
                 }
                 ch.startsWith("sess:") -> { session.set(ch, f, 0f); session.lastError?.let(errors::add) }
+                ch.startsWith("shell:") -> {
+                    if (!shizuku.granted()) errors += "Shizuku not connected"
+                    else shizuku.toggle(ch, f > 0.001f, checked)?.let(errors::add)
+                }
             }
         }
         val shell = values.filterKeys { it.startsWith("/") || it.startsWith("mtk:") }
@@ -83,6 +87,7 @@ class AuraHal(context: Context, private val repo: SettingsRepo) {
         torch.offAll()
         val s = repo.settings.value
         val shellCh = listOfNotNull(s.warmNode, s.coolNode).filter { it.startsWith("/") || it.startsWith("mtk:") }
+        listOf(s.warmNode, s.coolNode).filter { it.startsWith("shell:") }.forEach { if (shizuku.granted()) shizuku.toggle(it, false) }
         if (shellCh.isNotEmpty() && shizuku.granted()) shizuku.apply(shellCh.associateWith { 0f }, s.switchNodes)
         session.close()
         isLit = false

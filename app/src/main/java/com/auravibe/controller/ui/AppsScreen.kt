@@ -173,7 +173,7 @@ private fun AppRow(e: AppEntry, rule: AppRule, onOpen: () -> Unit, onRule: (AppR
         }
         ToggleBtn("📳", "Vibrate", rule.vibrate, Aura.Blue) { onRule(rule.copy(vibrate = !rule.vibrate)) }
         Spacer(Modifier.width(6.dp))
-        ToggleBtn("💡", "Light", rule.aura, Aura.Yellow) { onRule(rule.copy(aura = !rule.aura)) }
+        ToggleBtn("💡", "Aura", rule.aura, Aura.Yellow) { onRule(rule.copy(aura = !rule.aura)) }
     }
 }
 

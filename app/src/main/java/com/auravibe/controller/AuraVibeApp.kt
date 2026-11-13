@@ -27,6 +27,7 @@ class AuraVibeApp : Application() {
     lateinit var engine: PatternEngine; private set
     lateinit var vibes: Vibes; private set
     lateinit var calibrator: Calibrator; private set
+    lateinit var sniffer: com.auravibe.controller.hw.CameraSniffer; private set
     private var unlockReceiver: BroadcastReceiver? = null
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -39,6 +40,7 @@ class AuraVibeApp : Application() {
         engine = PatternEngine(hal, CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1)))
         vibes = Vibes(this)
         calibrator = Calibrator(hal, repo)
+        sniffer = com.auravibe.controller.hw.CameraSniffer(hal)
         scope.launch { engine.mode.collect { if (it == AuraMode.OFF) stopWatchingUnlock() } }
     }
 

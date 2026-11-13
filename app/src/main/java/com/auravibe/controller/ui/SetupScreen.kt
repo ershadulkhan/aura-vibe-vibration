@@ -51,6 +51,7 @@ fun SetupScreen() {
     val scope = rememberCoroutineScope()
     var tick by remember { mutableIntStateOf(0) }
     var wizard by rememberSaveable { mutableStateOf(false) }
+    var learn by rememberSaveable { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) { tick++; onPauseOrDispose { } }
 
     val listenerOn = remember(tick) { NotificationManagerCompat.getEnabledListenerPackages(ctx).contains(ctx.packageName) }
@@ -108,7 +109,8 @@ fun SetupScreen() {
             }
             StatusRow("Orange light: " + (s.warmNode.ifBlank { "not found yet" }), s.warmNode.isNotBlank(), "Find it") { wizard = true }
             Text("White light: " + (s.coolNode.ifBlank { "default camera flash" }), fontSize = 13.sp, color = Aura.Muted, fontFamily = FontFamily.Monospace)
-            BigButton("🟠 Fix / Calibrate Orange Light", Aura.Warm) { wizard = true }
+            BigButton("⚡ Auto-Detect from vivo Camera", Aura.Yellow) { learn = true }
+            BigButton("🟠 Step-by-Step Channel Tester", Aura.Warm) { wizard = true }
             BigButton("📋 Copy LED Hardware Report", Aura.CardHi, Color.White) { copyReport(ctx) }
             if (s.warmNode.isNotBlank() || s.coolNode.isNotBlank()) {
                 BigButton("Reset light setup", Aura.CardHi, Aura.Bad) { app.repo.update { it.copy(warmNode = "", coolNode = "") } }
@@ -149,6 +151,7 @@ fun SetupScreen() {
         Box(Modifier.padding(bottom = 8.dp))
     }
     if (wizard) OrangeWizard { wizard = false }
+    if (learn) LearnFromCamera { learn = false }
 }
 
 @Composable
@@ -190,7 +193,7 @@ private fun VendorLab() {
             Chip(if (open) "Hide" else "Open", open, Aura.Yellow) { open = !open }
         }
         if (open) {
-            Text("One key=value per line. Value can be a number or a list like 0,3. Use L for brightness (1-6) and K for colour (2700 warm … 6500 white).",
+            Text("One key=value per line. Value can be a number or a list like 0,3. Tokens: L = brightness 1-6, K = kelvin 2700 (orange) … 6500 (white), T(a,b) = a at orange … b at white, B(a,b) = a at dim … b at max.",
                 fontSize = 12.sp, color = Aura.Muted)
             androidx.compose.material3.OutlinedTextField(cam, { cam = it }, label = { Text("Camera id") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             androidx.compose.material3.OutlinedTextField(keys, { keys = it }, label = { Text("Keys") }, minLines = 2, modifier = Modifier.fillMaxWidth(),

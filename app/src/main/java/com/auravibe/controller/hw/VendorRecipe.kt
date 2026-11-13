@@ -11,7 +11,7 @@ import kotlin.math.roundToInt
  *   L = brightness level 1..6,   K = colour temperature in kelvin (2700 warm .. 6500 cool)
  */
 data class VendorRecipe(val cameraId: String, val torch: Boolean, val entries: List<Pair<String, String>>) {
-    val usesTone get() = entries.any { it.second.contains('K') }
+    val usesTone get() = entries.any { it.second.contains('K') || it.second.contains("T(") }
     val channel get() = "sess:$cameraId|${if (torch) "t" else "n"}|" + entries.joinToString(";") { "${it.first}=${it.second}" }
 
     companion object {
@@ -28,9 +28,28 @@ data class VendorRecipe(val cameraId: String, val torch: Boolean, val entries: L
 
         fun kelvin(tone: Float) = (2700 + (6500 - 2700) * tone.coerceIn(0f, 1f)).roundToInt()
 
-        fun resolve(v: String, level: Int, kelvin: Int) = v.replace("L", level.toString()).replace("K", kelvin.toString())
+        private val TONE = Regex("""T\((-?[\d.]+),(-?[\d.]+)\)""")
+        private val BRIGHT = Regex("""B\((-?[\d.]+),(-?[\d.]+)\)""")
 
-        fun zero(v: String) = v.split(",").joinToString(",") { "0" }
+        /**
+         * Resolve tokens for brightness fraction [f] (0..1) and [tone] (0 orange .. 1 white):
+         *   L → level 1..6, K → kelvin, T(a,b) → a..b by tone, B(a,b) → a..b by brightness.
+         */
+        fun resolve(v: String, f: Float, tone: Float): String {
+            val level = kotlin.math.ceil(f * 6).toInt().coerceIn(1, 6)
+            return v.replace(TONE) { m -> lerp(m, tone) }
+                .replace(BRIGHT) { m -> lerp(m, f) }
+                .replace("L", level.toString())
+                .replace("K", kelvin(tone).toString())
+        }
+
+        private fun lerp(m: MatchResult, x: Float): String {
+            val a = m.groupValues[1].toDouble()
+            val b = m.groupValues[2].toDouble()
+            return (a + (b - a) * x.coerceIn(0f, 1f)).roundToInt().toString()
+        }
+
+        fun zero(resolved: String) = resolved.split(",").joinToString(",") { "0" }
 
         /** Candidate Java values to try for a vendor key (its exact type is not exposed). */
         fun javaValues(v: String): List<Any> {
