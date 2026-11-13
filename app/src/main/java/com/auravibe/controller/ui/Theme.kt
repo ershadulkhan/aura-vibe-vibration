@@ -11,7 +11,7 @@ object Aura {
     val CardHi = Color(0xFF2A2A2D)
     val Yellow = Color(0xFFF5C747)
     val Blue = Color(0xFF2B70FA)
-    val Warm = Color(0xFFFF6B35)
+    val Warm = Color(0xFFFF6D00)
     val WarmYellow = Color(0xFFFFD166)
     val Cool = Color(0xFFFFFFFF)
     val Muted = Color(0xFF9A9AA0)

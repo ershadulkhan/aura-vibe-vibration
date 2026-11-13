@@ -6,60 +6,68 @@ import android.hardware.camera2.CameraManager
 import android.util.Log
 
 /**
- * Tier 1: Android 13+ torch strength API. Each flash-capable camera ID is exposed as one
- * channel ("cam:<id>"). Some multi-LED modules expose a second ID for the second LED
- * colour; the probe lets the user map them to Warm / Cool.
+ * Torch strength API. Enumerates listed camera ids, their physical sub-cameras and hidden
+ * numeric ids 0..15 (some vivo firmwares put the second Aura LED behind its own id).
  */
 class TorchBackend(context: Context) {
     private val cm = context.getSystemService(CameraManager::class.java)
     private val last = HashMap<String, Int>()
+    private var cache: List<TorchInfo>? = null
 
-    data class TorchInfo(val id: String, val facing: String, val maxLevel: Int, val defaultLevel: Int)
+    data class TorchInfo(val id: String, val facing: String, val maxLevel: Int, val source: String)
 
-    fun list(): List<TorchInfo> = runCatching {
-        cm.cameraIdList.mapNotNull { id ->
-            val c = cm.getCameraCharacteristics(id)
-            if (c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) != true) return@mapNotNull null
+    fun list(refresh: Boolean = false): List<TorchInfo> {
+        if (!refresh) cache?.let { return it }
+        val out = LinkedHashMap<String, TorchInfo>()
+        val listed = runCatching { cm.cameraIdList.toList() }.getOrDefault(emptyList())
+        fun probe(id: String, source: String) {
+            if (out.containsKey(id)) return
+            val c = runCatching { cm.getCameraCharacteristics(id) }.getOrNull() ?: return
+            if (c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) != true) return
             val facing = when (c.get(CameraCharacteristics.LENS_FACING)) {
                 CameraCharacteristics.LENS_FACING_BACK -> "back"
                 CameraCharacteristics.LENS_FACING_FRONT -> "front"
                 else -> "external"
             }
-            TorchInfo(
-                id, facing,
-                c.get(CameraCharacteristics.FLASH_INFO_STRENGTH_MAXIMUM_LEVEL) ?: 1,
-                c.get(CameraCharacteristics.FLASH_INFO_STRENGTH_DEFAULT_LEVEL) ?: 1,
-            )
+            out[id] = TorchInfo(id, facing, c.get(CameraCharacteristics.FLASH_INFO_STRENGTH_MAXIMUM_LEVEL) ?: 1, source)
         }
-    }.getOrElse { Log.w(TAG, "torch list failed", it); emptyList() }
+        listed.forEach { probe(it, "listed") }
+        listed.forEach { id ->
+            runCatching { cm.getCameraCharacteristics(id).physicalCameraIds }.getOrNull()
+                ?.forEach { probe(it, "physical of $id") }
+        }
+        (0..15).map { it.toString() }.filter { it !in listed }.forEach { probe(it, "hidden") }
+        return out.values.toList().also { cache = it }
+    }
 
-    /** Tier 2 probe: vendor-specific characteristic keys that look flash / aura related. */
-    fun vendorKeys(): List<String> = runCatching {
-        cm.cameraIdList.flatMap { id ->
-            cm.getCameraCharacteristics(id).keys
-                .map { it.name }
-                .filter { n -> VENDOR_HINTS.any { n.contains(it, ignoreCase = true) } && !n.startsWith("android.") }
-                .map { "cam $id → $it" }
-        }.distinct()
-    }.getOrDefault(emptyList())
+    /** Vendor (non android.*) request/session keys that look light related, per camera id. */
+    fun vendorKeys(): Map<String, List<String>> = runCatching {
+        cm.cameraIdList.associateWith { id ->
+            val c = cm.getCameraCharacteristics(id)
+            (c.availableCaptureRequestKeys.map { it.name } + c.availableSessionKeys.map { it.name })
+                .filter { n -> !n.startsWith("android.") && VENDOR_HINTS.any { n.contains(it, ignoreCase = true) } }
+                .distinct()
+        }.filterValues { it.isNotEmpty() }
+    }.getOrDefault(emptyMap())
 
-    fun defaultChannel(): String? =
-        list().firstOrNull { it.facing == "back" }?.let { "cam:${it.id}" }
+    fun defaultChannel(): String? = list().firstOrNull { it.facing == "back" }?.let { "cam:${it.id}" }
 
-    /** fraction 0..1 → torch strength level; 0 turns the torch off. */
-    fun set(channel: String, fraction: Float) {
+    /** fraction 0..1 → strength level; returns an error message or null. */
+    fun set(channel: String, fraction: Float): String? {
         val id = channel.removePrefix("cam:")
-        val info = list().firstOrNull { it.id == id } ?: return
-        val level = if (fraction <= 0.001f) 0 else (fraction * info.maxLevel).toInt().coerceIn(1, info.maxLevel)
-        if (last[id] == level) return
+        val max = list().firstOrNull { it.id == id }?.maxLevel ?: 1
+        val level = if (fraction <= 0.001f) 0 else (fraction * max).toInt().coerceIn(1, max)
+        if (last[id] == level) return null
         last[id] = level
-        runCatching {
+        return runCatching {
             when {
                 level == 0 -> cm.setTorchMode(id, false)
-                info.maxLevel > 1 -> cm.turnOnTorchWithStrengthLevel(id, level)
+                max > 1 -> cm.turnOnTorchWithStrengthLevel(id, level)
                 else -> cm.setTorchMode(id, true)
             }
-        }.onFailure { Log.w(TAG, "torch set $id=$level failed", it); last.remove(id) }
+        }.exceptionOrNull()?.let { e ->
+            Log.w(TAG, "torch $id=$level failed", e); last.remove(id); "${e.javaClass.simpleName}: ${e.message}"
+        }
     }
 
     fun offAll() {
@@ -69,6 +77,6 @@ class TorchBackend(context: Context) {
 
     companion object {
         private const val TAG = "TorchBackend"
-        private val VENDOR_HINTS = listOf("flash", "torch", "aura", "led", "vivo", "softlight", "ring")
+        val VENDOR_HINTS = listOf("vivo", "aura", "filllight", "fill_light", "color_temp", "colortemp", "cct", "led", "flash", "torch", "softlight")
     }
 }

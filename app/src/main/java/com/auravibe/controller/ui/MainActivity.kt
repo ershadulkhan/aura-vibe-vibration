@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -39,15 +39,15 @@ class MainActivity : ComponentActivity() {
                                 selectedIconColor = Color.Black, indicatorColor = Aura.Yellow,
                                 selectedTextColor = Aura.Yellow, unselectedIconColor = Aura.Muted, unselectedTextColor = Aura.Muted,
                             )
-                            NavigationBarItem(tab == 0, { tab = 0 }, { Icon(Icons.Default.Star, null) }, label = { Text("Aura Studio") }, colors = colors)
-                            NavigationBarItem(tab == 1, { tab = 1 }, { Icon(Icons.AutoMirrored.Filled.List, null) }, label = { Text("App rules") }, colors = colors)
+                            NavigationBarItem(tab == 0, { tab = 0 }, { Icon(Icons.Default.Home, null) }, label = { Text("Light & Vibe") }, colors = colors)
+                            NavigationBarItem(tab == 1, { tab = 1 }, { Icon(Icons.AutoMirrored.Filled.List, null) }, label = { Text("My Apps") }, colors = colors)
                             NavigationBarItem(tab == 2, { tab = 2 }, { Icon(Icons.Default.Settings, null) }, label = { Text("Setup") }, colors = colors)
                         }
                     },
                 ) { pad ->
                     Box(Modifier.fillMaxSize().padding(pad)) {
                         when (tab) {
-                            0 -> StudioScreen()
+                            0 -> HomeScreen()
                             1 -> AppsScreen()
                             else -> SetupScreen()
                         }

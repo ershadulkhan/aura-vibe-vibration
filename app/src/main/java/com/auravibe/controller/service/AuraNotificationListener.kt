@@ -6,7 +6,6 @@ import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.auravibe.controller.AuraVibeApp
-import com.auravibe.controller.engine.AuraMode
 
 /**
  * Event-driven engine. The system binds this service and calls onNotificationPosted;
@@ -37,15 +36,12 @@ class AuraNotificationListener : NotificationListenerService() {
         if (prev != null && now - prev < s.cooldownMs) return
         lastFire[sbn.packageName] = now
 
-        if (rule.vibrate) app.vibes.vibrate(rule.pattern, rule.customMs, s.usage)
-        // Don't hijack a light the user turned on manually in the Studio.
-        if (rule.aura && app.engine.mode.value == AuraMode.OFF) {
-            app.engine.play(
-                s.notifAnim,
-                peak = s.brightnessLevel / 5f,
-                temp = app.hal.effectiveTemp(s),
-                mode = AuraMode.PULSE,
-            )
+        if (rule.vibrate && s.vibe.enabled) {
+            app.vibes.vibrate(s.vibe, s.usage, if (rule.custom) rule.vibeStyle else null)
+        }
+        // Don't hijack a light the user turned on manually.
+        if (rule.aura && !app.lightOn) {
+            app.notificationFlash(if (rule.custom) s.light.copy(temp = rule.temp) else s.light)
         }
     }
 

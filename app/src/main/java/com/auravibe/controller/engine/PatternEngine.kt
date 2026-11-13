@@ -35,6 +35,12 @@ class PatternEngine(private val hal: AuraHal, private val scope: CoroutineScope)
         if (_mode.value == AuraMode.ON) scope.launch { hal.apply(peak, temp) }
     }
 
+    /** Run arbitrary hardware work on the engine's single-threaded lane (used by the calibrator). */
+    fun runOnLane(block: suspend () -> Unit): Job {
+        stop()
+        return scope.launch { block() }
+    }
+
     fun play(spec: AnimSpec, peak: Float, temp: Float, mode: AuraMode = AuraMode.PULSE) = start(mode) {
         val floor = minOf(0.2f, peak)
         var i = 0

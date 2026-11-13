@@ -3,7 +3,7 @@
 A small, battery-friendly Android app built for the **vivo X200 FE (OriginOS)** that:
 
 1. **Forces vibration for selected apps** (LinkedIn, Gmail, Google, WhatsApp…) while the phone is in **Vibrate** or **Silent** mode. On OriginOS the *Notifications* volume slider is locked in those modes, so third-party notifications stop vibrating; only calls do.
-2. **Controls the rear Aura light outside the Camera app** with a camera-style Studio (colour temperature + 5-step brightness), pulse patterns, and a Quick Settings tile.
+2. **Controls the rear Aura light outside the Camera app** with a one-tap power button, an orange ⟷ white colour slider, 5-step brightness, pulse patterns, and a Quick Settings tile.
 3. **Flashes the Aura light on notifications** for the apps you pick.
 
 > Works on Android 13+ (minSdk 33, targetSdk 35). Built with Kotlin, Jetpack Compose and Material 3.
@@ -22,33 +22,38 @@ A small, battery-friendly Android app built for the **vivo X200 FE (OriginOS)** 
 ## Setup on the phone (OriginOS)
 
 1. Install the APK (allow *Install unknown apps* for your browser / file manager).
-2. Open **AuraVibe → Setup** and:
+2. Open **AuraVibe → Setup** (start [Shizuku](https://shizuku.rikka.app/) first if you want the orange LED) and:
    - **Notification access → Grant**: turn on *AuraVibe notification engine*. Android 13+ may first show *Restricted setting*. If it does, go to *Settings → Apps → AuraVibe → ⋮ → Allow restricted settings* and try again.
    - **Battery: unrestricted → Allow**.
 3. In **App info → Battery** turn on **High background power consumption** (or *Unrestricted*), and enable **Auto-start**. Without this OriginOS/iManager may kill the listener.
-4. In **App rules**, search an app and switch on **Vibe** and/or **Aura**. Tap a row to pick a vibration pattern (Short double tap, Strong pulse, Heartbeat, Custom duration).
+4. In **My Apps**, search an app and tap **📳 Vibrate** and/or **💡 Light**. Tap the app row for custom colour and vibration.
 5. Put the phone in **Vibration** mode. In **Setup → Vibration attribute tester**, tap each option (Alarm, Communication request, Hardware feedback, Ringtone) and keep the one you actually feel. *Alarm* is the most likely to get through OriginOS's restriction.
 
 ### Quick Settings tile
-Pull down the shade, tap the pencil/edit icon and drag **Aura Light** into your tiles. It switches the light on using your saved colour/brightness. The Studio's safety cutoff still turns it off automatically.
+Pull down the shade, tap the pencil/edit icon and drag **Aura Light** into your tiles. It switches the light on using your saved colour/brightness. The auto turn-off (Setup → More options) still turns it off automatically.
 
 ---
 
-## Aura light hardware: how it is driven
+## The app in 3 tabs
 
-Third-party apps do **not** get an official API for vivo's dual-tone Aura ring, so the app has a 3-tier abstraction and an in-app **Hardware probe** (Setup tab → *Scan light hardware*):
+- **Light & Vibe:** one big power button (glows in the chosen colour), quick *Warm Orange / Mixed Natural / Pure White* buttons, then two cards:
+  - **Light Tuning:** colour slider (orange ⟷ white), 5-step brightness, style (Always On, Smooth Pulse, Reverse Pulse, Fast Blink, Heartbeat), speed, how many times (or until you unlock the phone), and a test button.
+  - **Vibration Tuning:** on/off, style (Single, Double, Long Strong Buzz, Heartbeat, Urgent Rapid), strength, length, repeat, and a "feel it now" button.
+- **My Apps:** search and filter (Enabled / Social & Work / All). Each app has a 📳 Vibrate and a 💡 Light button, and enabled apps stay pinned to the top. Tap an app to use your main settings or a custom colour and vibration.
+- **Setup:** permissions, Shizuku, the orange-light finder, the vibration-type tester and safety options.
 
-| Tier | Method | Notes |
-|---|---|---|
-| 1 | `CameraManager.turnOnTorchWithStrengthLevel()` | Standard Android 13+ API. Lists every flash-capable camera ID (`cam:0`, `cam:1`, …) with its strength levels. If the device exposes separate IDs for the warm and cool LEDs, map them and colour temperature works. With one ID you control **brightness only**. |
-| 2 | Vendor camera characteristics | The probe lists any non-`android.*` keys mentioning flash/torch/aura/led/vivo. This tier is **probe-only** for now: writing vendor capture-request tags needs an open camera session and has to be reverse-engineered per device. |
-| 3 | Shizuku → `/sys/class/leds/*/brightness` | Runs a persistent `sh` through Shizuku (no root) and writes LED driver nodes directly. The scanner shows `max_brightness`, current value, and **whether each node is writable by the shell user**. On many production kernels these nodes are root-only. If yours are read-only, this tier can't work without root. |
+## Getting the orange (warm) Aura LED to work
 
-**Calibrating:** after scanning, press **Test 1 s** on each channel to see which LED lights up, then tap **Warm** on the orange one and **Cool** on the white one. Once both are mapped, the Studio's temperature slider crossfades between them: `warm = b·min(1, 2(1−t))`, `cool = b·min(1, 2t)`. Select a backend (Auto / Camera torch / Shizuku sysfs) to force one tier.
+Android's flashlight API only reaches the main white LED, so the app tries every other route it knows and lets you pick the one that works:
 
-Shizuku: install it from Play Store / GitHub, start it (wireless debugging or ADB), then tap **Authorise** in Setup.
+1. **Kernel LED nodes via Shizuku:** `/sys/class/leds/*` (for example `led:torch_0`, `led:torch_1`…). After writing brightness, the app *commits* through any `led:switch_N` nodes (write 0, set levels, write 1). On vivo / MediaTek this commit step is what actually turns the LED on.
+2. **MediaTek flashlight core via Shizuku:** `/sys/class/flashlight_core/flashlight/flashlight_torch`, trying each LED index.
+3. **Hidden and physical camera IDs:** flash-capable IDs that aren't in the normal camera list.
+4. **Vendor camera keys:** opens a tiny camera session in torch mode and sets any vivo/aura/CCT/fill-light request key the firmware exposes.
 
----
+**🟠 Fix / Calibrate Orange Light** (Home card or Setup) blinks each channel one at a time. Tap **"Yes, it's ORANGE — Save This!"** when the orange LED lights up. If a white channel lights instead, mark it as white. After that the colour slider mixes the two: `warm = brightness × (1 − tone)`, `cool = brightness × tone`.
+
+If nothing lights up, the wizard shows why (for example *Permission denied*). Use **Copy LED Hardware Report** to share the list of LED nodes. On many production kernels these nodes can only be written by root, and no app can get past that without root.
 
 ## Battery design
 
@@ -65,10 +70,10 @@ Shizuku: install it from Play Store / GitHub, start it (wireless debugging or AD
 app/src/main/java/com/auravibe/controller/
 ├── AuraVibeApp.kt                 # tiny service locator
 ├── data/   Models.kt, SettingsRepo.kt (DataStore)
-├── hw/     TorchBackend.kt (tier 1+2), ShizukuBackend.kt (tier 3), AuraHal.kt, Vibes.kt
+├── hw/     TorchBackend.kt, ShizukuBackend.kt, SessionBackend.kt, Calibrator.kt, AuraHal.kt, Vibes.kt
 ├── engine/ PatternEngine.kt       # Breathe / Inverse breathe / Strobe / Heartbeat
 ├── service/AuraNotificationListener.kt, AuraTileService.kt
-└── ui/     MainActivity, StudioScreen, AppsScreen, SetupScreen, Components, Theme
+└── ui/     MainActivity, HomeScreen, OrangeWizard, AppsScreen, SetupScreen, Components, Theme
 ```
 
 ## Build locally
@@ -83,5 +88,5 @@ Requires JDK 17 and Android SDK platform 35.
 ## Known limitations
 
 - Whether a given `VibrationAttributes` usage gets past OriginOS in Silent mode depends on the firmware. That's why there's a tester instead of a hard-coded choice.
-- True warm/cool colour mixing needs either two torch IDs or writable sysfs LED nodes. With neither, the Studio still controls brightness and patterns, and the colour slider only changes the on-screen preview.
-- The safety cutoff timer runs inside the app process. If OriginOS kills the app while the light is on, turn it off from the tile or the Studio.
+- The orange LED works only if one of the four routes above is open on your firmware. If none is, brightness and patterns still work on the white LED.
+- The safety cutoff timer runs inside the app process. If OriginOS kills the app while the light is on, turn it off from the tile or the power button.

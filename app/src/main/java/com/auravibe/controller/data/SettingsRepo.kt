@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -18,10 +17,7 @@ import org.json.JSONObject
 
 private val Context.store by preferencesDataStore("auravibe")
 
-/**
- * DataStore-backed settings. Everything is mirrored into hot StateFlows so the
- * notification listener does an in-memory O(1) HashMap lookup per notification.
- */
+/** DataStore-backed settings mirrored into hot StateFlows (O(1) lookups from the listener). */
 class SettingsRepo(private val context: Context, private val scope: CoroutineScope) {
 
     private object K {
@@ -29,14 +25,12 @@ class SettingsRepo(private val context: Context, private val scope: CoroutineSco
         val quiet = booleanPreferencesKey("only_quiet")
         val usage = stringPreferencesKey("usage")
         val cooldown = intPreferencesKey("cooldown")
-        val temp = floatPreferencesKey("temp")
-        val autoTemp = booleanPreferencesKey("auto_temp")
-        val bright = intPreferencesKey("bright")
-        val backend = stringPreferencesKey("backend")
+        val autoOff = intPreferencesKey("auto_off_min")
         val warm = stringPreferencesKey("warm_node")
         val cool = stringPreferencesKey("cool_node")
-        val anim = stringPreferencesKey("anim")
-        val notifAnim = stringPreferencesKey("notif_anim")
+        val switches = stringPreferencesKey("switch_nodes")
+        val light = stringPreferencesKey("light_v2")
+        val vibe = stringPreferencesKey("vibe_v2")
         val rules = stringPreferencesKey("rules")
     }
 
@@ -55,21 +49,22 @@ class SettingsRepo(private val context: Context, private val scope: CoroutineSco
             p[K.quiet] = s.onlyInQuietModes
             p[K.usage] = s.usage.name
             p[K.cooldown] = s.cooldownMs
-            p[K.temp] = s.colorTemp
-            p[K.autoTemp] = s.autoTemp
-            p[K.bright] = s.brightnessLevel
-            p[K.backend] = s.backend.name
+            p[K.autoOff] = s.autoOffMin
             p[K.warm] = s.warmNode
             p[K.cool] = s.coolNode
-            p[K.anim] = s.anim.toJson()
-            p[K.notifAnim] = s.notifAnim.toJson()
+            p[K.switches] = s.switchNodes.joinToString("\n")
+            p[K.light] = s.light.toJson()
+            p[K.vibe] = s.vibe.toJson()
         }
     }
+
+    fun updateLight(block: (LightSettings) -> LightSettings) = update { it.copy(light = block(it.light)) }
+    fun updateVibe(block: (VibeSettings) -> VibeSettings) = update { it.copy(vibe = block(it.vibe)) }
 
     fun setRule(pkg: String, rule: AppRule) = scope.launch {
         context.store.edit { p ->
             val map = parseRules(p[K.rules]).toMutableMap()
-            if (rule.active || rule.pattern != VibePattern.SHORT_DOUBLE) map[pkg] = rule else map.remove(pkg)
+            if (rule.active || rule.custom) map[pkg] = rule else map.remove(pkg)
             val o = JSONObject()
             map.forEach { (k, v) -> o.put(k, v.toJson()) }
             p[K.rules] = o.toString()
@@ -81,14 +76,12 @@ class SettingsRepo(private val context: Context, private val scope: CoroutineSco
         onlyInQuietModes = this[K.quiet] ?: true,
         usage = enumOr(this[K.usage], VibeUsage.ALARM),
         cooldownMs = this[K.cooldown] ?: 3000,
-        colorTemp = this[K.temp] ?: 0.5f,
-        autoTemp = this[K.autoTemp] ?: false,
-        brightnessLevel = this[K.bright] ?: 3,
-        backend = enumOr(this[K.backend], AuraBackend.AUTO),
+        autoOffMin = this[K.autoOff] ?: 10,
         warmNode = this[K.warm] ?: "",
         coolNode = this[K.cool] ?: "",
-        anim = this[K.anim]?.let(::animFromJson) ?: AnimSpec(),
-        notifAnim = this[K.notifAnim]?.let(::animFromJson) ?: EngineSettings().notifAnim,
+        switchNodes = this[K.switches]?.split("\n")?.filter { it.isNotBlank() } ?: emptyList(),
+        light = LightSettings.fromJson(this[K.light]),
+        vibe = VibeSettings.fromJson(this[K.vibe]),
     )
 
     private fun parseRules(raw: String?): Map<String, AppRule> {
@@ -98,20 +91,4 @@ class SettingsRepo(private val context: Context, private val scope: CoroutineSco
             buildMap { o.keys().forEach { k -> put(k, AppRule.fromJson(o.getJSONObject(k))) } }
         }.getOrDefault(emptyMap())
     }
-
-    private fun AnimSpec.toJson() = JSONObject()
-        .put("p", pattern.name).put("r", repeat).put("u", rampUpMs)
-        .put("h", holdMs).put("d", rampDownMs).put("t", timeoutSec).toString()
-
-    private fun animFromJson(s: String): AnimSpec = runCatching {
-        val o = JSONObject(s)
-        AnimSpec(
-            pattern = enumOr(o.optString("p"), LightPattern.BREATHE),
-            repeat = o.optInt("r", 3), rampUpMs = o.optInt("u", 600), holdMs = o.optInt("h", 300),
-            rampDownMs = o.optInt("d", 600), timeoutSec = o.optInt("t", 60),
-        )
-    }.getOrDefault(AnimSpec())
-
-    private inline fun <reified E : Enum<E>> enumOr(name: String?, def: E): E =
-        runCatching { enumValueOf<E>(name!!) }.getOrDefault(def)
 }

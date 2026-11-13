@@ -1,83 +1,72 @@
 package com.auravibe.controller.hw
 
 import android.content.Context
-import com.auravibe.controller.data.AuraBackend
-import com.auravibe.controller.data.EngineSettings
 import com.auravibe.controller.data.SettingsRepo
-import java.time.LocalTime
 
 /**
- * Hardware abstraction for the Aura light. A "channel" is either "cam:<id>" (torch API) or
- * an absolute sysfs LED directory (Shizuku). Warm and cool channels are mixed according
- * to colour temperature; with a single channel only brightness is controllable.
+ * Mixes the warm (orange) and cool (white) channels and routes each to its backend.
+ * temp: 0 = pure orange, 1 = pure white.  warm = b·(1−t), cool = b·t.
  */
 class AuraHal(context: Context, private val repo: SettingsRepo) {
     val torch = TorchBackend(context)
     val shizuku = ShizukuBackend()
+    val session = SessionBackend(context)
 
     @Volatile var isLit = false
         private set
 
-    private fun channels(s: EngineSettings): Pair<String?, String?> {
-        val warm = s.warmNode.ifBlank { null }
-        val cool = s.coolNode.ifBlank { null }
-        val allowed = { ch: String? ->
-            ch != null && when (s.backend) {
-                AuraBackend.AUTO -> true
-                AuraBackend.CAMERA_TORCH -> ch.startsWith("cam:")
-                AuraBackend.SHIZUKU_SYSFS -> ch.startsWith("/")
-            }
-        }
-        val w = warm.takeIf { allowed(it) }
-        val c = cool.takeIf { allowed(it) }
-        if (w == null && c == null) {
-            return if (s.backend == AuraBackend.SHIZUKU_SYSFS) null to null else null to torch.defaultChannel()
-        }
-        return w to c
-    }
+    fun warmChannel(): String? = repo.settings.value.warmNode.ifBlank { null }
+    fun coolChannel(): String? = repo.settings.value.coolNode.ifBlank { null } ?: torch.defaultChannel()
+    val hasOrange get() = warmChannel() != null
 
-    fun effectiveTemp(s: EngineSettings): Float {
-        if (!s.autoTemp) return s.colorTemp
-        val h = LocalTime.now().hour
-        return if (h >= 19 || h < 7) 0.15f else 0.85f
-    }
-
-    /** brightness 0..1, temp 0 (warm) .. 1 (cool). */
     fun apply(brightness: Float, temp: Float) {
-        val s = repo.settings.value
-        val (warm, cool) = channels(s)
         val b = brightness.coerceIn(0f, 1f)
-        if (warm != null && cool != null && warm != cool) {
-            val t = temp.coerceIn(0f, 1f)
-            write(warm, b * minOf(1f, 2f * (1f - t)))
-            write(cool, b * minOf(1f, 2f * t))
-        } else {
-            (warm ?: cool)?.let { write(it, b) }
+        val t = temp.coerceIn(0f, 1f)
+        val warm = warmChannel()
+        val cool = coolChannel()
+        val values = LinkedHashMap<String, Float>()
+        when {
+            warm != null && cool != null && warm != cool -> { values[warm] = b * (1f - t); values[cool] = b * t }
+            warm != null -> values[warm] = b
+            cool != null -> values[cool] = b
         }
+        write(values, checked = false)
         isLit = b > 0f
     }
 
-    private fun write(ch: String, f: Float) =
-        if (ch.startsWith("cam:")) torch.set(ch, f) else shizuku.set(ch, f)
+    /** Light a single channel at full power (calibration). Returns an error/diagnostic message. */
+    fun testChannel(channel: String, on: Boolean): String? = write(mapOf(channel to if (on) 1f else 0f), checked = true)
+
+    private fun write(values: Map<String, Float>, checked: Boolean): String? {
+        val errors = mutableListOf<String>()
+        values.forEach { (ch, f) ->
+            when {
+                ch.startsWith("cam:") -> torch.set(ch, f)?.let(errors::add)
+                ch.startsWith("sess:") -> { session.set(ch, f); session.lastError?.let(errors::add) }
+            }
+        }
+        val shell = values.filterKeys { it.startsWith("/") || it.startsWith("mtk:") }
+        if (shell.isNotEmpty()) {
+            if (!shizuku.granted()) errors += "Shizuku not connected"
+            else {
+                val sw = repo.settings.value.switchNodes
+                if (checked) shizuku.applyChecked(shell, sw)?.let(errors::add) else shizuku.apply(shell, sw)
+            }
+        }
+        return errors.joinToString("\n").ifBlank { null }
+    }
 
     fun off() {
         torch.offAll()
-        shizuku.offAll()
+        val s = repo.settings.value
+        val shellCh = listOfNotNull(s.warmNode, s.coolNode).filter { it.startsWith("/") || it.startsWith("mtk:") }
+        if (shellCh.isNotEmpty() && shizuku.granted()) shizuku.apply(shellCh.associateWith { 0f }, s.switchNodes)
+        session.close()
         isLit = false
     }
 
-    /** Free the shell process / camera handles once an effect finishes. */
     fun release() {
         off()
         shizuku.release()
-    }
-
-    fun describe(): String {
-        val (w, c) = channels(repo.settings.value)
-        return when {
-            w == null && c == null -> "No light channel available"
-            w != null && c != null && w != c -> "Dual-tone: warm=$w, cool=$c"
-            else -> "Single channel: ${w ?: c} (brightness only)"
-        }
     }
 }
