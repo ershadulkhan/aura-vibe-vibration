@@ -25,24 +25,47 @@ class AuraHal(context: Context, private val repo: SettingsRepo) {
         val warm = warmChannel()
         val cool = coolChannel()
         val values = LinkedHashMap<String, Float>()
+        val warmRecipe = warm?.let { VendorRecipe.parse(it) }
         when {
-            warm != null && cool != null && warm != cool -> { values[warm] = b * (1f - t); values[cool] = b * t }
-            warm != null -> values[warm] = b
-            cool != null -> values[cool] = b
+            // Orange via a camera session: it owns the camera, so white and orange can't both use
+            // separate APIs at once. A recipe with a K token mixes colour itself.
+            warmRecipe != null -> {
+                if (warmRecipe.usesTone || cool == null || cool == warm || b * (1f - t) >= b * t) {
+                    if (cool != null && cool != warm && !cool.startsWith("sess:")) values[cool] = 0f
+                    write(values, false)
+                    session.set(warm!!, b, t)
+                } else {
+                    session.close()
+                    values[cool] = b
+                    write(values, false)
+                }
+            }
+            warm != null && cool != null && warm != cool -> { values[warm] = b * (1f - t); values[cool] = b * t; write(values, false) }
+            warm != null -> { values[warm] = b; write(values, false) }
+            cool != null -> { values[cool] = b; write(values, false) }
         }
-        write(values, checked = false)
         isLit = b > 0f
     }
 
     /** Light a single channel at full power (calibration). Returns an error/diagnostic message. */
-    fun testChannel(channel: String, on: Boolean): String? = write(mapOf(channel to if (on) 1f else 0f), checked = true)
+    fun testChannel(channel: String, on: Boolean): String? {
+        if (channel.startsWith("sess:")) {
+            if (on) { torch.offAll(); session.clearError() }
+            session.set(channel, if (on) 1f else 0f, 0f)
+            return session.lastError
+        }
+        return write(mapOf(channel to if (on) 1f else 0f), checked = true)
+    }
 
     private fun write(values: Map<String, Float>, checked: Boolean): String? {
         val errors = mutableListOf<String>()
         values.forEach { (ch, f) ->
             when {
-                ch.startsWith("cam:") -> torch.set(ch, f)?.let(errors::add)
-                ch.startsWith("sess:") -> { session.set(ch, f); session.lastError?.let(errors::add) }
+                ch.startsWith("cam:") -> {
+                    if (f > 0f && session.isOpen) session.close()
+                    torch.set(ch, f)?.let(errors::add)
+                }
+                ch.startsWith("sess:") -> { session.set(ch, f, 0f); session.lastError?.let(errors::add) }
             }
         }
         val shell = values.filterKeys { it.startsWith("/") || it.startsWith("mtk:") }

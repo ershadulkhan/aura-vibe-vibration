@@ -51,6 +51,8 @@ Android's flashlight API only reaches the main white LED, so the app tries every
 3. **Hidden and physical camera IDs:** flash-capable IDs that aren't in the normal camera list.
 4. **Vendor camera keys:** opens a tiny camera session in torch mode and sets any vivo/aura/CCT/fill-light request key the firmware exposes.
 
+**What a real X200 FE report showed:** `/sys/class/leds` is empty and `flashlight_core` is blocked for the Shizuku shell (SELinux), so routes 1–2 need root on that phone. The camera HAL does expose vivo's own Aura ("soft light") keys: `vivo.control.isSoftLight`, `vivo.control.softLightStudio`, `vivo.control.colour.temperature`, plus `com.mediatek.flashfeature.customizedTorchDuty`. Since v1.2 the finder tries these first as "Aura recipes", and **Setup → 🧪 Vendor Key Lab** lets you test any `key=value` combination (use `L` for brightness, `K` for kelvin) and save it as the orange light.
+
 **🟠 Fix / Calibrate Orange Light** (Home card or Setup) blinks each channel one at a time. Tap **"Yes, it's ORANGE — Save This!"** when the orange LED lights up. If a white channel lights instead, mark it as white. After that the colour slider mixes the two: `warm = brightness × (1 − tone)`, `cool = brightness × tone`.
 
 If nothing lights up, the wizard shows why (for example *Permission denied*). Use **Copy LED Hardware Report** to share the list of LED nodes. On many production kernels these nodes can only be written by root, and no app can get past that without root.

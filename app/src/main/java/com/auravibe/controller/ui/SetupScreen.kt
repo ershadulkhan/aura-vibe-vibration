@@ -115,6 +115,8 @@ fun SetupScreen() {
             }
         }
 
+        VendorLab()
+
         SectionCard {
             SectionTitle("3. Make vibration get through", "Phone is in $ringer mode. Switch to Vibrate, tap each, keep the one you feel.")
             VibeUsage.entries.chunked(2).forEach { row ->
@@ -162,5 +164,57 @@ private fun StatusRow(title: String, ok: Boolean, action: String, onAction: () -
 fun Context.safeStart(vararg intents: Intent) {
     for (i in intents) {
         if (runCatching { startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
+    }
+}
+
+/** Lets the user try any camera vendor key combination without a new app build. */
+@Composable
+private fun VendorLab() {
+    val app = AuraVibeApp.instance
+    val scope = rememberCoroutineScope()
+    var open by rememberSaveable { mutableStateOf(false) }
+    var cam by rememberSaveable { mutableStateOf(app.hal.torch.backCameraId() ?: "0") }
+    var keys by rememberSaveable { mutableStateOf("vivo.control.isSoftLight=1") }
+    var torch by rememberSaveable { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
+    val camPerm = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { }
+    fun channel() = com.auravibe.controller.hw.VendorRecipe(cam.trim(), torch, keys.split(";", "\n").mapNotNull { e ->
+        val i = e.indexOf('='); if (i <= 0) null else e.substring(0, i).trim() to e.substring(i + 1).trim()
+    }).channel
+
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) { SectionTitle("🧪 Vendor Key Lab", "Advanced: try any camera key for the orange light") }
+            Chip(if (open) "Hide" else "Open", open, Aura.Yellow) { open = !open }
+        }
+        if (open) {
+            Text("One key=value per line. Value can be a number or a list like 0,3. Use L for brightness (1-6) and K for colour (2700 warm … 6500 white).",
+                fontSize = 12.sp, color = Aura.Muted)
+            androidx.compose.material3.OutlinedTextField(cam, { cam = it }, label = { Text("Camera id") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            androidx.compose.material3.OutlinedTextField(keys, { keys = it }, label = { Text("Keys") }, minLines = 2, modifier = Modifier.fillMaxWidth(),
+                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = Color.White))
+            SwitchRow("Also request the normal flash (torch)", null, torch, Aura.Yellow) { torch = it }
+            BigButton("▶️ Test for 3 seconds", Aura.Yellow) {
+                if (!app.hal.session.hasPermission()) { camPerm.launch(android.Manifest.permission.CAMERA); return@BigButton }
+                val ch = channel()
+                app.turnLightOff()
+                status = "Testing…"
+                scope.launch {
+                    app.hal.testChannel(ch, true)
+                    delay(3000)
+                    status = app.hal.session.lastError?.let { "⚠️ $it" } ?: "Sent without errors. Did the orange light turn on?"
+                    app.hal.testChannel(ch, false)
+                }
+            }
+            status?.let { Text(it, fontSize = 13.sp, color = if (it.startsWith("⚠️")) Aura.Bad else Aura.Muted) }
+            BigButton("🟠 Save as my Orange Light", Aura.CardHi, Aura.Warm) {
+                val ch = channel()
+                app.repo.update { it.copy(warmNode = ch) }
+                status = "Saved as orange light."
+            }
+            Text("Key names: tap Copy LED Hardware Report to see the light-related keys your camera has.", fontSize = 11.sp, color = Aura.Muted)
+        }
     }
 }

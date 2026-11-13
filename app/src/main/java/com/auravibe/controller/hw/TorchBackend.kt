@@ -40,15 +40,23 @@ class TorchBackend(context: Context) {
         return out.values.toList().also { cache = it }
     }
 
-    /** Vendor (non android.*) request/session keys that look light related, per camera id. */
+    /** All vendor (non android.*) request + session key names for one camera. */
+    fun vendorKeyNames(id: String): Set<String> = runCatching {
+        val c = cm.getCameraCharacteristics(id)
+        (c.availableCaptureRequestKeys.map { it.name } + c.availableSessionKeys.map { it.name })
+            .filter { !it.startsWith("android.") }.toSet()
+    }.getOrDefault(emptySet())
+
+    /** Vendor keys that look light related, per listed camera id. */
     fun vendorKeys(): Map<String, List<String>> = runCatching {
         cm.cameraIdList.associateWith { id ->
-            val c = cm.getCameraCharacteristics(id)
-            (c.availableCaptureRequestKeys.map { it.name } + c.availableSessionKeys.map { it.name })
-                .filter { n -> !n.startsWith("android.") && VENDOR_HINTS.any { n.contains(it, ignoreCase = true) } }
-                .distinct()
+            vendorKeyNames(id).filter { n -> VendorRecipe.LIGHT_HINTS.any { n.contains(it, ignoreCase = true) } }.sorted()
         }.filterValues { it.isNotEmpty() }
     }.getOrDefault(emptyMap())
+
+    fun backCameraId(): String? = runCatching {
+        cm.cameraIdList.firstOrNull { cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK }
+    }.getOrNull()
 
     fun defaultChannel(): String? = list().firstOrNull { it.facing == "back" }?.let { "cam:${it.id}" }
 
@@ -77,6 +85,5 @@ class TorchBackend(context: Context) {
 
     companion object {
         private const val TAG = "TorchBackend"
-        val VENDOR_HINTS = listOf("vivo", "aura", "filllight", "fill_light", "color_temp", "colortemp", "cct", "led", "flash", "torch", "softlight")
     }
 }

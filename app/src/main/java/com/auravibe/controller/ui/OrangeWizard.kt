@@ -80,6 +80,7 @@ fun OrangeWizard(onClose: () -> Unit) {
                 val e = withContext(Dispatchers.IO) { app.hal.testChannel(ch, true) }
                 if (e != null) error = e
                 delay(1500)
+                if (ch.startsWith("sess:")) app.hal.session.lastError?.let { error = it }
                 withContext(Dispatchers.IO) { app.hal.testChannel(ch, false) }
                 delay(600)
             }
@@ -120,7 +121,7 @@ fun OrangeWizard(onClose: () -> Unit) {
                         if (!app.hal.shizuku.granted())
                             "The orange LED is usually only reachable through the kernel LED driver. Start Shizuku and authorise AuraVibe in Setup, then run this again."
                         else
-                            "Your firmware doesn't let apps (or the Shizuku shell) switch the orange LED. That normally needs root. Copy the report and share it so the right node can be found.",
+                            "None of the built-in recipes lit the orange LED. Try your own values in Setup → Vendor Key Lab, or copy the report and share it.",
                         fontSize = 13.sp, color = Aura.Muted, textAlign = TextAlign.Center,
                     )
                     if (whiteSaved != null) Text("White light saved: $whiteSaved", fontSize = 12.sp, color = Aura.Ok)
@@ -136,6 +137,10 @@ fun OrangeWizard(onClose: () -> Unit) {
                     Text("Look at the back of the phone.\nDid the ORANGE light turn on?", fontSize = 18.sp, textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold)
                     Text(current.title, fontSize = 14.sp)
                     Text(current.detail, fontSize = 11.sp, color = Aura.Muted, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center)
+                    if (current.channel.startsWith("sess:")) {
+                        Text("Uses the camera, so a green camera dot may appear. Orange may light together with the white flash; that still counts.",
+                            fontSize = 11.sp, color = Aura.Muted, textAlign = TextAlign.Center)
+                    }
                     error?.let {
                         Text("⚠️ This channel refused: $it", fontSize = 12.sp, color = Aura.Bad, textAlign = TextAlign.Center)
                     }
